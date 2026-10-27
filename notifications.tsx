@@ -15,8 +15,14 @@
  *   - `session.error` → error copy + optional detail toast
  *   - `question.asked` / `replied` / `rejected`
  *   - `permission.asked` / `permission.replied`
- *   - `session.created` / `session.deleted`
+ *   - `session.created` / `session.updated` / `session.deleted`
  *   - renderer focus/blur + lifecycle disposal
+ *
+ * v1.19 publishes `session.created` and `session.updated` with
+ * `properties.info.parentID`, and exposes the live session state through
+ * `api.state.session.get(sessionID)?.parentID`. Both are used to classify
+ * subagent sessions: the event is tracked eagerly, and the state lookup is the
+ * fallback for sessions created before the plugin was registered.
  *
  * Desktop bubbles use `api.renderer.triggerNotification`, the same terminal
  * notification primitive as v2. The v1 built-in notification plugin
@@ -86,7 +92,15 @@ interface V1EventMap {
     sessionID: string
     info?: { parentID?: string }
   }>
+  "session.updated": V1Event<{
+    sessionID: string
+    info?: { parentID?: string }
+  }>
   "session.deleted": V1Event<{ sessionID: string }>
+}
+
+interface V1SessionState {
+  parentID?: string
 }
 
 /**
@@ -94,6 +108,15 @@ interface V1EventMap {
  * file stays readable even if the host's (version-drifting) types change.
  */
 interface V1TuiApi {
+  /**
+   * Live session state. Optional because older hosts may not expose it; when
+   * absent, subagent classification falls back to the session events alone.
+   */
+  state?: {
+    session?: {
+      get?: (sessionID: string) => V1SessionState | undefined
+    }
+  }
   event: {
     on<Type extends keyof V1EventMap>(
       type: Type,
@@ -164,6 +187,10 @@ const tui: TuiPlugin = async (rawApi) => {
           })
         }
       : undefined,
+    // Fallback for sessions whose `session.created` event fired before this
+    // plugin was registered (or was otherwise missed).
+    getSessionParent: (sessionID) =>
+      api.state?.session?.get?.(sessionID)?.parentID,
   })
 
   const disposers: Array<() => void> = []
@@ -198,6 +225,13 @@ const tui: TuiPlugin = async (rawApi) => {
 
   try {
     on("session.created", (event) => {
+      core.sessionCreated(event.properties.sessionID, event.properties.info?.parentID)
+    })
+    on("session.updated", (event) => {
+      // An update can promote a session the plugin has not classified yet to a
+      // child (e.g. it is attached to a parent later). Classification is
+      // additive only: a session is never demoted back to a parent, and an
+      // update without a parentID leaves the existing classification alone.
       core.sessionCreated(event.properties.sessionID, event.properties.info?.parentID)
     })
     on("session.deleted", (event) => {

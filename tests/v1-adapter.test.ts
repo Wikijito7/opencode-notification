@@ -20,6 +20,8 @@ interface V1HarnessOptions {
   offThrows?: boolean
   onDisposeThrows?: boolean
   failingEventRegistration?: string
+  sessions?: Record<string, { parentID?: string }>
+  hostState?: "present" | "missing" | "missing-session"
 }
 
 const createV1Harness = async (options: V1HarnessOptions = {}) => {
@@ -38,9 +40,15 @@ const createV1Harness = async (options: V1HarnessOptions = {}) => {
   const toasts: V1Toast[] = []
   const rendererListeners = new Map<string, () => void>()
   const rendererOffCalls: string[] = []
+  const sessions = new Map(Object.entries(options.sessions ?? {}))
   let disposeCallback: (() => void | Promise<void>) | null = null
 
   const api = {
+    state: {
+      session: {
+        get: (sessionID: string) => sessions.get(sessionID),
+      },
+    } as { session?: { get: (sessionID: string) => unknown } },
     event: {
       on: (type: string, handler: (event: unknown) => unknown): (() => void) => {
         if (type === options.failingEventRegistration) {
@@ -85,6 +93,12 @@ const createV1Harness = async (options: V1HarnessOptions = {}) => {
     },
   }
 
+  if (options.hostState === "missing") {
+    delete (api as { state?: unknown }).state
+  } else if (options.hostState === "missing-session") {
+    ;(api as { state: { session?: unknown } }).state.session = undefined
+  }
+
   let setupError: unknown
   try {
     await adapter.default.tui(api)
@@ -104,6 +118,7 @@ const createV1Harness = async (options: V1HarnessOptions = {}) => {
     toasts,
     rendererListeners,
     rendererOffCalls,
+    sessions,
     setupError,
     get dispose() {
       return disposeCallback
@@ -138,6 +153,7 @@ describe("v1 TUI adapter", () => {
       "session.deleted",
       "session.error",
       "session.status",
+      "session.updated",
     ])
     expect(adapter.default.id).toBe("notifications")
   })
@@ -398,6 +414,88 @@ describe("v1 TUI adapter", () => {
     expect(harness.notifications).toHaveLength(1)
   })
 
+  it("works without api.state on older hosts", async () => {
+    const harness = await createV1Harness({ hostState: "missing" })
+
+    expect(harness.setupError).toBeUndefined()
+    await harness.emit("session.created", {
+      sessionID: "child",
+      info: { parentID: "parent" },
+    })
+    await harness.emit("session.status", {
+      sessionID: "child",
+      status: { type: "idle" },
+    })
+    expect(harness.notifications).toEqual([])
+
+    await harness.emit("session.status", {
+      sessionID: "root",
+      status: { type: "idle" },
+    })
+    expect(harness.notifications).toEqual([
+      { message: "Task completed!", title: "OpenCode" },
+    ])
+  })
+
+  it("works without api.state.session on older hosts", async () => {
+    const harness = await createV1Harness({ hostState: "missing-session" })
+
+    expect(harness.setupError).toBeUndefined()
+    await harness.emit("session.created", {
+      sessionID: "child",
+      info: { parentID: "parent" },
+    })
+    await harness.emit("session.status", {
+      sessionID: "child",
+      status: { type: "idle" },
+    })
+    expect(harness.notifications).toEqual([])
+
+    await harness.emit("session.status", {
+      sessionID: "root",
+      status: { type: "idle" },
+    })
+    expect(harness.notifications).toEqual([
+      { message: "Task completed!", title: "OpenCode" },
+    ])
+  })
+
+  it("tracks parentID from session.updated before completion", async () => {
+    const harness = await createV1Harness()
+
+    await harness.emit("session.updated", {
+      sessionID: "child",
+      info: { parentID: "parent" },
+    })
+    await harness.emit("session.status", {
+      sessionID: "child",
+      status: { type: "idle" },
+    })
+
+    expect(harness.notifications).toEqual([])
+  })
+
+  it("suppresses completion when api.state identifies the session as a child", async () => {
+    const harness = await createV1Harness({
+      sessions: { child: { parentID: "parent" } },
+    })
+
+    await harness.emit("session.status", {
+      sessionID: "child",
+      status: { type: "idle" },
+    })
+    expect(harness.notifications).toEqual([])
+
+    // Root-session control still notifies.
+    await harness.emit("session.status", {
+      sessionID: "root",
+      status: { type: "idle" },
+    })
+    expect(harness.notifications).toEqual([
+      { message: "Task completed!", title: "OpenCode" },
+    ])
+  })
+
   it("clears owned question and permission IDs on session.deleted", async () => {
     const harness = await createV1Harness({
       config: { dedupeWindowMs: 0 },
@@ -440,7 +538,7 @@ describe("v1 TUI adapter", () => {
   it("disposes immediately when lifecycle registration throws", async () => {
     const harness = await createV1Harness({ onDisposeThrows: true })
 
-    expect(harness.unsubscribed).toHaveLength(9)
+    expect(harness.unsubscribed).toHaveLength(10)
     expect(harness.handlers.size).toBe(0)
     expect(harness.rendererOffCalls.sort()).toEqual(["blur", "focus"])
     expect(harness.dispose).toBeNull()
@@ -455,7 +553,7 @@ describe("v1 TUI adapter", () => {
     expect(harness.rendererListeners.size).toBe(2)
     expect(() => harness.disposeNow()).not.toThrow()
 
-    expect(harness.unsubscribed).toHaveLength(9)
+    expect(harness.unsubscribed).toHaveLength(10)
     expect(harness.handlers.size).toBe(0)
     expect([...harness.rendererOffCalls].sort()).toEqual(["blur", "focus"])
   })
@@ -473,6 +571,7 @@ describe("v1 adapter partial setup failure", () => {
       "session.created",
       "session.deleted",
       "session.status",
+      "session.updated",
     ])
     expect(harness.rendererListeners.size).toBe(0)
     expect([...harness.rendererOffCalls].sort()).toEqual(["blur", "focus"])

@@ -222,7 +222,7 @@ Both adapters normalize their generation-specific events into the same shared co
 | Error (`error`) | `session.error` (raw error text is toast detail, not notification copy) |
 | Permission (`permission`) | `permission.asked` (deduped by request ID, then by action); `permission.replied` clears the ID |
 | Question (`question`) | `question.asked` (deduped by request ID); `question.replied` / `question.rejected` clear the ID |
-| Session lifecycle | `session.created` (tracks subagent `info.parentID`), `session.deleted` (drops every guard owned by the session) |
+| Session lifecycle | `session.created` / `session.updated` (tracks subagent `info.parentID`; an update can promote a previously unseen session to a child), `session.deleted` (drops every guard owned by the session); `api.state.session.get(sessionID)?.parentID` is the fallback for sessions created before the plugin was registered |
 | Focus/disposal | `renderer` focus/blur listeners; `lifecycle.onDispose` unsubscribes everything |
 
 ### v2 (`notifications/tui.tsx`)
