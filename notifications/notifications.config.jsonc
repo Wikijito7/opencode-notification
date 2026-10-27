@@ -1,0 +1,69 @@
+{
+  // Shared by the v1 TUI adapter (root notifications.tsx) and the v2 TUI
+  // adapter (notifications/tui.tsx). Both read this single file.
+
+  // Optional override — terminal is auto-detected by default via $TERM_PROGRAM
+  // and the parent process tree. Uncomment and set manually only if auto-detection
+  // does not work for your terminal.
+  //
+  // Find your terminal's process name: run this inside your terminal:
+  //   osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'
+  //
+  // Common terminals:
+  //   "Ghostty"          Ghostty
+  //   "Terminal"         Terminal.app
+  //   "iTerm2"           iTerm2
+  //   "Alacritty"        Alacritty
+  //   "Warp"             Warp
+  //   "kitty"            kitty
+  //   "WezTerm"          WezTerm
+  //   "Code"             VS Code
+  //   "Code - Insiders"  VS Code Insiders
+  // "terminalProcessName": "Ghostty",
+
+  // Master sound toggle. Set to false to silence all notification sounds.
+  "soundEnabled": true,
+
+  // Per-event enable/disable. Set any to false to suppress that notification type.
+  "events": {
+    "idle": true,
+    "error": true,
+    "permission": true,
+    "question": true
+  },
+
+  // Per-event sound. Either:
+  //   - a system sound stem, resolved per platform:
+  //       macOS  /System/Library/Sounds/<name>.aiff
+  //       Linux  /usr/share/sounds/freedesktop/stereo/<name>.oga
+  //   - an absolute path (/path/to/sound.aiff or .oga), or a home-relative
+  //     path (~/sounds/alert.aiff).
+  //
+  // macOS default stems: Glass, Basso, Submarine, Ping, Pop, Funk, Morse, Hero, Tink
+  // Linux default stems: complete, bell, message, ...
+  // Fallbacks when a stem is missing: Glass (macOS), complete (Linux).
+  "sounds": {
+    "idle": "Glass",
+    "error": "Basso",
+    "permission": "Submarine",
+    "question": "Submarine"
+  },
+
+  // Per-event notification messages.
+  // In "permission", {summary} is replaced with a short description of the requested tool action.
+  "messages": {
+    "idle": "Task completed!",
+    "error": "Something went wrong, I need your attention!",
+    "permission": "I need permission to do: {summary}",
+    "question": "I have a question for you!"
+  },
+
+  // Minimum time (ms) between notifications that share a dedupe key. Distinct
+  // question forms and same-action permission requests are rate-limited; the
+  // same form/permission ID is always deduped until replied/cancelled.
+  "dedupeWindowMs": 1500,
+
+  // Maximum size of each bounded in-memory guard set/map (sessions, subagents,
+  // forms, permissions, dedupe keys). Oldest entries are evicted first.
+  "maxRecentNotifications": 100
+}
